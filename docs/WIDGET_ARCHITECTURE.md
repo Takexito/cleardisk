@@ -28,14 +28,28 @@ macOS Desktop Widget (WidgetKit) for ClearDisk, displaying real-time information
 
 ### 2.2 Data Sharing Between App & Widget
 
-**Problem:** The widget runs in a separate process (extension sandbox). It cannot directly access `DiskMonitor`'s in-memory state.
+**Problem:** The widget runs in a separate process. Widget Extensions are **always sandboxed** by macOS regardless of whether the host app is sandboxed or not. The extension cannot access arbitrary filesystem paths or `DiskMonitor`'s in-memory state.
 
-**Solution:** Use **App Groups** + shared `UserDefaults` / JSON file:
+**Solution:** Use **App Groups** as the sole data-sharing mechanism. Both the main app and the widget extension must be signed with the same Team ID and configured with the same App Group entitlement. This is a hard requirement — there is no fallback.
 
 ```
 App Group: group.com.cleardisk.shared
-├── shared UserDefaults (lightweight metrics)
+├── shared UserDefaults(suiteName:) for lightweight metrics (used %, free space)
 └── shared container file: widget-data.json (full cache breakdown)
+```
+
+**Signing requirement:** Both the main app and the widget extension must be code-signed (at minimum with a Developer ID or local development certificate) and include the `com.apple.security.application-groups` entitlement pointing to `group.com.cleardisk.shared`. Unsigned builds will not have access to App Group containers.
+
+**Entitlements files needed:**
+- `ClearDisk.entitlements` — for the main app
+- `ClearDiskWidget.entitlements` — for the widget extension
+
+Both contain:
+```xml
+<key>com.apple.security.application-groups</key>
+<array>
+    <string>group.com.cleardisk.shared</string>
+</array>
 ```
 
 ### 2.3 Widget Timeline & Freshness
@@ -121,16 +135,23 @@ struct CacheSummary: Codable {
 
 ### 4.2 Storage Location
 
+The **only** production path for data exchange is the App Group container:
+
 ```
 ~/Library/Group Containers/group.com.cleardisk.shared/widget-data.json
 ```
 
-Fallback (if App Groups unavailable without signing):
-```
-~/Library/Application Support/ClearDisk/widget-data.json
-```
+This path is managed by macOS and accessible to both the main app and the widget extension when they share the `group.com.cleardisk.shared` App Group entitlement.
 
-Since ClearDisk is distributed outside the App Store and is not sandboxed, both app and widget extension can read/write to a known shared path without App Groups. This simplifies the implementation significantly.
+**There is no filesystem fallback.** Widget Extensions are always sandboxed and cannot read from `~/Library/Application Support/` or other arbitrary paths. App Groups + code signing are a hard requirement for this feature.
+
+**Access pattern in code:**
+```swift
+let containerURL = FileManager.default.containerURL(
+    forSecurityApplicationGroupIdentifier: "group.com.cleardisk.shared"
+)!
+let widgetDataURL = containerURL.appendingPathComponent("widget-data.json")
+```
 
 ---
 
@@ -146,16 +167,20 @@ Sources/
 │
 ├── Shared/                         # NEW — shared models
 │   ├── WidgetData.swift            # WidgetData + CacheSummary models
-│   └── SharedPaths.swift           # Shared file paths constants
+│   └── SharedPaths.swift           # App Group container path resolution
 │
 └── ClearDiskWidget/                # NEW — Widget Extension
     ├── ClearDiskWidget.swift       # Widget entry point + configuration
     ├── WidgetTimelineProvider.swift # TimelineProvider implementation
-    ├── WidgetDataReader.swift      # Reads shared JSON
+    ├── WidgetDataReader.swift      # Reads shared JSON from App Group container
     └── Views/
         ├── SmallWidgetView.swift   # .systemSmall layout
         ├── MediumWidgetView.swift  # .systemMedium layout
         └── LargeWidgetView.swift   # .systemLarge layout
+
+Entitlements/
+├── ClearDisk.entitlements          # NEW — App Group entitlement for main app
+└── ClearDiskWidget.entitlements    # NEW — App Group entitlement for widget
 ```
 
 ---
@@ -235,8 +260,10 @@ Sources/
 - Include all fields needed by all three widget sizes
 
 **Step 1.2** — Create `Sources/Shared/SharedPaths.swift`
-- Define shared file path: `~/Library/Application Support/ClearDisk/widget-data.json`
-- Helper to ensure directory exists
+- Define App Group identifier constant: `group.com.cleardisk.shared`
+- Resolve shared container via `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
+- Shared file path: `<App Group Container>/widget-data.json`
+- Fatal error if container URL is nil (means entitlements are misconfigured)
 
 **Step 1.3** — Create `Sources/ClearDisk/WidgetDataWriter.swift`
 - `WidgetDataWriter.write(from: DiskMonitor)` — serializes current state to JSON
@@ -277,7 +304,7 @@ Sources/
 - Risk level indicators (colored dots)
 - "Open ClearDisk" deep link
 
-### Phase 3: Build System Integration
+### Phase 3: Build System & Signing
 
 **Step 3.1** — Create Xcode project for widget extension
 - Since SPM doesn't support app extensions, create a minimal `.xcodeproj`
@@ -288,11 +315,23 @@ Sources/
 - Add a library target for shared code
 - Keep executable target for main app
 
-**Step 3.3** — Update build scripts
+**Step 3.3** — Create entitlements files
+- `Entitlements/ClearDisk.entitlements` — add `com.apple.security.application-groups` with `group.com.cleardisk.shared`
+- `Entitlements/ClearDiskWidget.entitlements` — same App Group entitlement
+- Configure both targets in Xcode project to use their respective entitlements
+
+**Step 3.4** — Configure code signing
+- Both main app and widget extension must be signed with the same Team ID
+- For local development: self-signed certificate or Apple Development certificate
+- For distribution: Developer ID certificate (required for App Group access)
+- Update build scripts to pass signing identity and entitlements
+
+**Step 3.5** — Update build scripts
 - `scripts/build_app.sh` — include widget extension in app bundle
 - Widget goes to `ClearDisk.app/Contents/Extensions/ClearDiskWidget.appex`
+- Add `codesign` steps for both the extension and the main app with entitlements
 
-**Step 3.4** — Update `Info.plist`
+**Step 3.6** — Update `Info.plist`
 - Add `NSExtension` dictionary for widget
 - Configure `NSExtensionPointIdentifier: com.apple.widgetkit-extension`
 
@@ -336,7 +375,7 @@ Sources/
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Data sharing mechanism | Shared JSON file | No App Groups needed (non-sandboxed app), simple, debuggable |
+| Data sharing mechanism | App Group container + shared JSON file | Widget Extensions are always sandboxed; App Groups is the only reliable IPC mechanism |
 | Widget refresh strategy | App-triggered + 15min fallback | Fresh data after each scan, fallback if app not running |
 | Build system | Xcode project wrapping SPM | Only viable way to embed Widget Extension |
 | Widget families | Small + Medium + Large | Each serves different dashboard density needs |
@@ -359,10 +398,10 @@ Sources/
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | SPM doesn't support Widget Extensions | Build system complexity | Minimal Xcode project wrapper; keep SPM for shared code |
-| Widget extension is sandboxed | Cannot read arbitrary paths | Main app writes pre-computed data to known shared location |
+| Widget extension is always sandboxed | Cannot read arbitrary paths | App Group container is the sole data exchange point; main app writes pre-computed data there |
 | WidgetKit has 15-min minimum refresh | Stale data possible | App-triggered reload after each scan; "Last updated" timestamp |
-| Non-signed app can't use App Groups | Data sharing limitation | Use shared filesystem path instead (app is not sandboxed) |
-| Widget extension code signing | Distribution complexity | Document signing steps; provide unsigned dev workflow |
+| Code signing required for App Groups | Both app and extension must be signed | Provide Developer ID signing guide; local dev uses self-signed certificate; CI signs with team cert |
+| Widget extension code signing | Distribution complexity | Document signing steps; entitlements template included in repo |
 
 ---
 
