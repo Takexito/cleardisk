@@ -63,18 +63,19 @@ enum WidgetDataWriter {
 
     /// Derive a category for caches that have no explicit group
     private static func categoryForCache(_ name: String) -> String {
-        if name.contains("Docker") { return "Containers" }
-        if name.contains("npm") || name.contains("Yarn") || name.contains("pnpm") || name.contains("Bun") { return "JavaScript" }
-        if name.contains("pip") || name.contains("Conda") { return "Python" }
-        if name.contains("Gradle") || name.contains("Maven") || name.contains("Android") { return "Java/Android" }
-        if name.contains("Go ") { return "Go" }
-        if name.contains("Rust") || name.contains("Cargo") { return "Rust" }
-        if name.contains("Homebrew") { return "System Tools" }
-        if name.contains("CocoaPods") || name.contains("Carthage") { return "iOS/macOS" }
-        if name.contains("Terraform") { return "Infrastructure" }
-        if name.contains("Composer") { return "PHP" }
-        if name.contains("Flutter") || name.contains("Pub") { return "Flutter" }
-        if name.contains("JetBrains") { return "IDEs" }
+        let name = name.lowercased()
+        if name.contains("docker") { return "Containers" }
+        if name.contains("npm") || name.contains("yarn") || name.contains("pnpm") || name.contains("bun") { return "JavaScript" }
+        if name.contains("pip") || name.contains("conda") { return "Python" }
+        if name.contains("gradle") || name.contains("maven") || name.contains("android") { return "Java/Android" }
+        if name.contains("go ") { return "Go" }
+        if name.contains("rust") || name.contains("cargo") { return "Rust" }
+        if name.contains("homebrew") { return "System Tools" }
+        if name.contains("cocoapods") || name.contains("carthage") { return "iOS/macOS" }
+        if name.contains("terraform") { return "Infrastructure" }
+        if name.contains("composer") { return "PHP" }
+        if name.contains("flutter") || name.contains("pub") { return "Flutter" }
+        if name.contains("jetbrains") { return "IDEs" }
         return "Other"
     }
 }
