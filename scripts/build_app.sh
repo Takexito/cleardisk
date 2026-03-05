@@ -61,6 +61,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
 </plist>
 EOF
 
+# Code sign with entitlements for App Group access (required for widget data sharing)
+ENTITLEMENTS="$BUILD_DIR/Entitlements/ClearDisk.entitlements"
+if [ -f "$ENTITLEMENTS" ]; then
+    echo "Signing with entitlements..."
+    codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+    codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+else
+    echo "Warning: Entitlements file not found at $ENTITLEMENTS — widget data sharing will be unavailable"
+fi
+
 echo "Done! App bundle created at: $APP_BUNDLE"
 echo "To run: open $APP_BUNDLE"
 ls -la "$APP_BUNDLE/Contents/MacOS/$APP_NAME"

@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import UserNotifications
+import ClearDiskShared
 
 // MARK: - Disk Monitor
 class DiskMonitor: ObservableObject {
@@ -146,6 +147,12 @@ class DiskMonitor: ObservableObject {
                 self?.calculateForecast()
                 self?.checkThresholdNotification()
                 self?.checkNotificationStatus()
+
+                // Write widget data for widget extension consumption
+                if let self = self {
+                    WidgetDataWriter.write(from: self)
+                }
+                // TODO: Phase 2 — WidgetCenter.shared.reloadAllTimelines()
             }
         }
     }
