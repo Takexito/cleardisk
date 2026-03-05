@@ -6,7 +6,7 @@ import Shared
 /// Becomes a no-op when the App Group container is unavailable (unsigned builds).
 enum WidgetDataWriter {
     private static let logger = Logger(subsystem: "com.cleardisk", category: "WidgetDataWriter")
-    private static let maxTopCaches = 10
+    private static let maxTopCaches = 15
 
     /// Writes current DiskMonitor state to the shared App Group container.
     /// - Returns: `true` if data was written successfully, `false` otherwise.
@@ -16,18 +16,29 @@ enum WidgetDataWriter {
             return false
         }
 
-        let topCaches = monitor.devCaches
-            .sorted { $0.size > $1.size }
+        let cacheSummaries = monitor.devCaches.map { cache in
+            CacheSummary(
+                name: cache.name,
+                sizeBytes: cache.size,
+                icon: cache.icon,
+                riskLevel: cache.riskLevel,
+                category: cache.group ?? "Other"
+            )
+        }
+
+        let artifactSummaries = monitor.projectArtifacts.map { artifact in
+            CacheSummary(
+                name: "\(artifact.projectName)/\(artifact.artifactName)",
+                sizeBytes: artifact.size,
+                icon: artifact.typeIcon,
+                riskLevel: "safe",
+                category: "Projects"
+            )
+        }
+
+        let topCaches = (cacheSummaries + artifactSummaries)
+            .sorted { $0.sizeBytes > $1.sizeBytes }
             .prefix(maxTopCaches)
-            .map { cache in
-                CacheSummary(
-                    name: cache.name,
-                    sizeBytes: cache.size,
-                    icon: cache.icon,
-                    riskLevel: cache.riskLevel,
-                    category: cache.group ?? "Other"
-                )
-            }
 
         let data = WidgetData(
             timestamp: Date(),
@@ -45,9 +56,7 @@ enum WidgetDataWriter {
         )
 
         do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let jsonData = try encoder.encode(data)
+            let jsonData = try SharedPaths.makeEncoder().encode(data)
             try jsonData.write(to: url, options: .atomic)
             logger.info("Widget data written (\(jsonData.count) bytes)")
             return true

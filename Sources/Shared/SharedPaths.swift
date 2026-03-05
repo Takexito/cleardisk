@@ -19,4 +19,18 @@ public enum SharedPaths {
         }
         return containerURL.appendingPathComponent("widget-data.json")
     }
+
+    /// Shared JSON encoder configured for widget data. Both writer and reader must use the same config.
+    public static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+
+    /// Shared JSON decoder configured for widget data. Both writer and reader must use the same config.
+    public static func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
 }
