@@ -18,13 +18,13 @@ macOS Desktop Widget (WidgetKit) for ClearDisk, displaying real-time information
 
 **Problem:** The current project is pure SPM (`Package.swift`). WidgetKit extensions require an Xcode project with embedded targets — SPM does not support app extensions natively.
 
-**Solution:** Migrate to a hybrid build:
-- Create an `.xcodeproj` via `xcodebuild` or manually
-- The main app becomes an App target (not executable)
-- The widget becomes a Widget Extension target embedded in the app
-- Shared code lives in a local Swift Package or shared framework
+**Solution (Canonical):** Create a single `.xcodeproj` that wraps the existing SPM structure:
+- The main app becomes an App target that depends on SPM packages
+- The widget becomes a Widget Extension target **embedded in the main app bundle**
+- Shared code (`Sources/Shared/`) is a local Swift Package imported by both targets
+- This is the standard Apple-recommended approach for app + extension bundles
 
-**Alternative (Recommended for this project):** Keep SPM for the main app, add a standalone **companion Xcode project** specifically for the widget that reads shared data. This avoids disrupting the existing build pipeline.
+**Alternative (trade-offs documented):** Keep SPM for the main app and create a standalone companion Xcode project only for the widget. This avoids touching the existing build pipeline but introduces complexity: two separate build artifacts, independent signing, and the widget `.appex` must be manually copied into the app bundle during a post-build step. Not recommended unless the main app cannot migrate to an Xcode project wrapper for other reasons.
 
 ### 2.2 Data Sharing Between App & Widget
 
@@ -147,10 +147,19 @@ This path is managed by macOS and accessible to both the main app and the widget
 
 **Access pattern in code:**
 ```swift
-let containerURL = FileManager.default.containerURL(
-    forSecurityApplicationGroupIdentifier: "group.com.cleardisk.shared"
-)!
-let widgetDataURL = containerURL.appendingPathComponent("widget-data.json")
+import os
+
+private let logger = Logger(subsystem: "com.cleardisk", category: "SharedPaths")
+
+func widgetDataURL() -> URL? {
+    guard let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: "group.com.cleardisk.shared"
+    ) else {
+        logger.error("App Group container unavailable — check entitlements and code signing")
+        return nil
+    }
+    return containerURL.appendingPathComponent("widget-data.json")
+}
 ```
 
 ---
@@ -263,7 +272,11 @@ Entitlements/
 - Define App Group identifier constant: `group.com.cleardisk.shared`
 - Resolve shared container via `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
 - Shared file path: `<App Group Container>/widget-data.json`
-- Fatal error if container URL is nil (means entitlements are misconfigured)
+- If container URL is `nil` (entitlements misconfigured or unsigned build):
+  - Log a descriptive warning via `os.Logger` (not `fatalError` — never crash the host app for a config issue)
+  - `WidgetDataWriter.write()` becomes a no-op, returns `false`
+  - Optionally surface a non-blocking diagnostic in the app UI (e.g. "Widget data sharing unavailable — check code signing")
+- Strict validation belongs in CI/build scripts: add a build phase that runs `codesign -d --entitlements :-` and asserts the App Group key is present
 
 **Step 1.3** — Create `Sources/ClearDisk/WidgetDataWriter.swift`
 - `WidgetDataWriter.write(from: DiskMonitor)` — serializes current state to JSON
@@ -306,10 +319,10 @@ Entitlements/
 
 ### Phase 3: Build System & Signing
 
-**Step 3.1** — Create Xcode project for widget extension
-- Since SPM doesn't support app extensions, create a minimal `.xcodeproj`
-- Main app target embeds the widget extension
-- Shared code compiled into both targets
+**Step 3.1** — Create Xcode project wrapping SPM (canonical approach per §2.1)
+- Create a single `.xcodeproj` with two targets: main App and Widget Extension
+- Widget Extension target is embedded in the main App target ("Embed App Extensions" build phase)
+- Both targets depend on `Sources/Shared/` as a local Swift Package
 
 **Step 3.2** — Update `Package.swift`
 - Add a library target for shared code
