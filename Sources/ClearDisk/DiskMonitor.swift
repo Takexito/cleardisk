@@ -1,6 +1,11 @@
 import Foundation
 import AppKit
 import UserNotifications
+import Shared
+
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 // MARK: - Disk Monitor
 class DiskMonitor: ObservableObject {
@@ -146,6 +151,14 @@ class DiskMonitor: ObservableObject {
                 self?.calculateForecast()
                 self?.checkThresholdNotification()
                 self?.checkNotificationStatus()
+
+                // Write data for Widget Extension
+                if let self = self {
+                    WidgetDataWriter.write(from: self)
+                    #if canImport(WidgetKit)
+                    WidgetCenter.shared.reloadAllTimelines()
+                    #endif
+                }
             }
         }
     }

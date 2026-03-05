@@ -3,6 +3,16 @@ BU USER NOTUDUR: SUBWATCHI BOŞVER SADECE CLEAR DISKE ODAKLAN !
 
 All notable changes to ClearDisk are documented here.
 
+## [1.7.0] - 2026-03-05
+### Added
+- **Widget shared data layer** — Foundation for macOS Desktop Widget (WidgetKit)
+  - `WidgetData` and `CacheSummary` Codable models in new `Shared` module
+  - `SharedPaths` with App Group container resolution (`group.com.cleardisk.shared`)
+  - `WidgetDataWriter` serializes DiskMonitor state to JSON after each scan
+  - Graceful no-op when App Group container unavailable (unsigned builds)
+  - Conditional `WidgetCenter.reloadAllTimelines()` call after scan
+- New `Shared` SPM library target for cross-target code sharing
+
 ## [1.6.4] - 2026-03-05
 ### Added
 - **Terraform/OpenTofu cache support** - Monitor `~/.terraform.d` plugin cache and per-project `.terraform` artifact directories (Issue #10, PR #11)

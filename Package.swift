@@ -5,8 +5,13 @@ let package = Package(
     name: "ClearDisk",
     platforms: [.macOS(.v14)],
     targets: [
+        .target(
+            name: "Shared",
+            path: "Sources/Shared"
+        ),
         .executableTarget(
             name: "ClearDisk",
+            dependencies: ["Shared"],
             path: "Sources/ClearDisk"
         )
     ]
